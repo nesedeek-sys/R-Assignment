@@ -1,0 +1,226 @@
+---
+title: "Documentation"
+output: html_document
+date: "2026-03-15"
+---
+Load libraries:
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+----
+# Load files
+fang_et_l_genotypes <- read.table("fang_et_al_genotypes.txt", header = TRUE, sep = "\t")
+snp_position <- read.table("snp_position.txt", header = TRUE, sep = "\t")
+
+# Inspect fang file
+dim(fang_et_l_genotypes)
+head(fang_et_l_genotypes)
+str(fang_et_l_genotypes)
+summary(fang_et_l_genotypes)
+
+# Inspect snp file
+dim(snp_position)
+head(snp_position)
+str(snp_position)
+summary(snp_position)
+
+-----
+Data Processing
+-----
+
+# Filter maize
+maize <- subset(fang, Group %in% c("ZMMIL", "ZMMLR", "ZMMMR"))
+
+# Transpose
+maize_t <- t(maize[ , 4:ncol(maize)])
+maize_t <- as.data.frame(maize_t)
+
+# Fix column and row names
+colnames(maize_t) <- maize$Sample_ID
+maize_t$SNP_ID <- rownames(maize_t)
+
+# Prepare SNP position file
+snp_small <- snp[ , c("SNP_ID", "Chromosome", "Position")]
+
+# Merge
+merged_maize <- merge(maize_t, snp_small, by = "SNP_ID")
+
+(I ran into that and I had to re-order the columns)
+# Fix column order
+all_cols <- colnames(merged_maize)
+sample_cols <- all_cols[!all_cols %in% c("SNP_ID", "Chromosome", "Position")]
+merged_maize <- merged_maize[ , c("SNP_ID", "Chromosome", "Position", sample_cols)]
+
+# Remove unknown and multiple
+merged_maize <- merged_maize[!merged_maize$Chromosome %in% c("unknown", "multiple"), ]
+
+# Convert to numeric
+merged_maize$Position <- as.numeric(merged_maize$Position)
+merged_maize$Chromosome <- as.numeric(merged_maize$Chromosome)
+
+# Remove NAs
+merged_maize <- merged_maize[!is.na(merged_maize$Position), ]
+
+# Split by chromosome
+chr_list <- split(merged_maize, merged_maize$Chromosome)
+
+# Write increasing files
+lapply(names(chr_list), function(chr) {
+  one_chr <- chr_list[[chr]]
+  one_chr <- one_chr[order(one_chr$Position), ]
+  write.table(one_chr, 
+              file = paste0("maize_chr", chr, "_increasing.txt"),
+              sep = "\t", row.names = FALSE)
+})
+
+# Write decreasing files
+lapply(names(chr_list), function(chr) {
+  one_chr <- chr_list[[chr]]
+  one_chr <- one_chr[order(one_chr$Position, decreasing = TRUE), ]
+  one_chr[] <- lapply(one_chr, function(x) gsub("\\?", "-", x))
+  write.table(one_chr, 
+              file = paste0("maize_chr", chr, "_decreasing.txt"),
+              sep = "\t", row.names = FALSE)
+})
+
+-----
+For Teosinte
+
+#I followed the same steps as for the maize file.
+
+# Filter teosinte
+teosinte <- subset(fang, Group %in% c("ZMPBA", "ZMPIL", "ZMPJA"))
+
+# Transpose
+teosinte_t <- t(teosinte[ , 4:ncol(teosinte)])
+teosinte_t <- as.data.frame(teosinte_t)
+
+# Fix column and row names
+colnames(teosinte_t) <- teosinte$Sample_ID
+teosinte_t$SNP_ID <- rownames(teosinte_t)
+
+# Merge
+merged_teosinte <- merge(teosinte_t, snp_small, by = "SNP_ID")
+
+# Fix column order
+all_cols <- colnames(merged_teosinte)
+sample_cols <- all_cols[!all_cols %in% c("SNP_ID", "Chromosome", "Position")]
+merged_teosinte <- merged_teosinte[ , c("SNP_ID", "Chromosome", "Position", sample_cols)]
+
+# Remove unknown and multiple
+merged_teosinte <- merged_teosinte[!merged_teosinte$Chromosome %in% c("unknown", "multiple"), ]
+
+# Convert to numeric
+merged_teosinte$Position <- as.numeric(merged_teosinte$Position)
+merged_teosinte$Chromosome <- as.numeric(merged_teosinte$Chromosome)
+
+# Remove NAs
+merged_teosinte <- merged_teosinte[!is.na(merged_teosinte$Position), ]
+
+# Split by chromosome
+chr_list_teo <- split(merged_teosinte, merged_teosinte$Chromosome)
+
+# Write increasing files
+lapply(names(chr_list_teo), function(chr) {
+  one_chr <- chr_list_teo[[chr]]
+  one_chr <- one_chr[order(one_chr$Position), ]
+  write.table(one_chr, 
+              file = paste0("teosinte_chr", chr, "_increasing.txt"),
+              sep = "\t", row.names = FALSE)
+})
+
+# Write decreasing files
+lapply(names(chr_list_teo), function(chr) {
+  one_chr <- chr_list_teo[[chr]]
+  one_chr <- one_chr[order(one_chr$Position, decreasing = TRUE), ]
+  one_chr[] <- lapply(one_chr, function(x) gsub("\\?", "-", x))
+  write.table(one_chr, 
+              file = paste0("teosinte_chr", chr, "_decreasing.txt"),
+              sep = "\t", row.names = FALSE)
+})
+-----
+Data Visualiztion
+-----
+
+# SNPs per chromosome
+combined <- rbind(
+  merged_maize[ , c("SNP_ID", "Chromosome", "Position", "Group")],
+  merged_teosinte[ , c("SNP_ID", "Chromosome", "Position", "Group")]
+)
+combined$Chromosome <- factor(combined$Chromosome, levels = c(1,2,3,4,5,6,7,8,9,10))
+
+p1 <- ggplot(combined, aes(x = as.factor(Chromosome), fill = Group)) +
+  geom_bar(position = "dodge") +
+  labs(title = "SNPs per Chromosome", x = "Chromosome", y = "Number of SNPs") +
+  theme_bw()
+ggsave("SNPs_per_chromosome.png", plot = p1, width = 10, height = 6, dpi = 300)
+
+# Heterozygosity by sample
+maize_long <- pivot_longer(merged_maize,
+                           cols = -c(SNP_ID, Chromosome, Position),
+                           names_to = "Sample",
+                           values_to = "Genotype")
+maize_long <- maize_long %>%
+  mutate(Category = case_when(
+    Genotype %in% c("A/A", "C/C", "G/G", "T/T") ~ "Homozygous",
+    Genotype == "?/?" ~ "Missing",
+    TRUE ~ "Heterozygous"
+  ))
+
+p2 <- ggplot(maize_long, aes(x = Sample, fill = Category)) +
+  geom_bar(position = "fill") +
+  labs(title = "Maize: Homozygous, Heterozygous and Missing Data",
+       x = "Sample", y = "Proportion") +
+  theme_bw() +
+  theme(axis.text.x = element_blank())
+ggsave("maize_heterozygosity.png", plot = p2, width = 10, height = 6, dpi = 300)
+
+# Heterozygosity by group
+combined_long <- rbind(maize_long, teosinte_long)
+sample_groups <- fang[ , c("Sample_ID", "Group")]
+combined_long <- merge(combined_long, sample_groups,
+                       by.x = "Sample", by.y = "Sample_ID")
+combined_long$Group.y <- NULL
+colnames(combined_long)[colnames(combined_long) == "Group.x"] <- "Group"
+
+p3 <- ggplot(combined_long, aes(x = Group, fill = Category)) +
+  geom_bar(position = "fill") +
+  labs(title = "Heterozygosity by Group",
+       x = "Group", y = "Proportion") +
+  theme_bw()
+ggsave("heterozygosity_by_group.png", plot = p3, width = 10, height = 6, dpi = 300)
+
+# SNP density
+p4 <- ggplot(combined, aes(x = Position, fill = Group)) +
+  geom_histogram(bins = 50) +
+  facet_wrap(~Chromosome, scales = "free_x") +
+  labs(title = "SNP Density Across Chromosome Positions",
+       x = "Position", y = "Count") +
+  theme_bw() +
+  theme(axis.text.x = element_blank())
+ggsave("SNP_density.png", plot = p4, width = 12, height = 8, dpi = 300)
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
