@@ -1,0 +1,9 @@
+---
+title: "YNFU_review_of_Nesreen's"
+output: pdf_document
+date: "`r format(Sys.Date(), '%Y-%m-%d')`"
+---
+
+The logic of how you approached the assignment was easy to follow. Perhaps in the data inspection part, it would be better to consider including more functions to learn more about the files. More importantly, since you processed maize and teosinte data in the same way, you might benefit from writing functions for some of the steps instead of copy-and-pasting the codes. Also, I like the SNP density across chromosome position figure that you created. 
+
+Overall, I think your work is great!
